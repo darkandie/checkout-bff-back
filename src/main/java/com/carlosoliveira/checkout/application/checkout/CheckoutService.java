@@ -63,8 +63,13 @@ public class CheckoutService {
 
         PaymentResult result;
         try {
-            result = paymentGateway.charge(
-                    new PaymentRequest(cart.getId(), method, cart.total(), cart.currency(), command.card()));
+            result = paymentGateway.charge(new PaymentRequest(
+                    cart.getId(),
+                    cart.getAttempt().map(PaymentAttempt::id).orElseThrow(),
+                    method,
+                    cart.total(),
+                    cart.currency(),
+                    command.card()));
         } catch (RuntimeException e) {
             log.error("Payment processing failed cartId={}", cart.getId(), e);
             cart.abortProcessing(previousStatus);

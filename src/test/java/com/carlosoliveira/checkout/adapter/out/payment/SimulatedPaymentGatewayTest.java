@@ -53,7 +53,7 @@ class SimulatedPaymentGatewayTest {
     @Test
     @DisplayName("approves Pix returning a copy-and-paste code instead of card digits")
     void approvesPix() {
-        PaymentResult result = gateway.charge(new PaymentRequest(UUID.randomUUID(), PIX, AMOUNT, "BRL", null));
+        PaymentResult result = gateway.charge(new PaymentRequest(UUID.randomUUID(), UUID.randomUUID(), PIX, AMOUNT, "BRL", null));
 
         assertThat(result.status()).isEqualTo(PaymentStatus.APPROVED);
         assertThat(result.lastDigits()).isNull();
@@ -70,7 +70,33 @@ class SimulatedPaymentGatewayTest {
         assertThat(first.transactionId()).isNotEqualTo(second.transactionId());
     }
 
+    @Test
+    @DisplayName("returns the original result when the same idempotency key is charged again")
+    void replaysRepeatedIdempotencyKey() {
+        PaymentRequest request = cardRequest(approvedCard(), CREDIT_CARD);
+
+        PaymentResult first = gateway.charge(request);
+        PaymentResult retried = gateway.charge(request);
+
+        assertThat(retried).isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("replays a decline for the same attempt and charges again for a new attempt")
+    void newAttemptIsChargedAgain() {
+        PaymentRequest attempt = cardRequest(declinedCard(), CREDIT_CARD);
+        PaymentRequest newAttempt = cardRequest(approvedCard(), CREDIT_CARD);
+
+        PaymentResult declined = gateway.charge(attempt);
+        PaymentResult replayed = gateway.charge(attempt);
+        PaymentResult approved = gateway.charge(newAttempt);
+
+        assertThat(replayed).isEqualTo(declined);
+        assertThat(approved.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(approved.transactionId()).isNotEqualTo(declined.transactionId());
+    }
+
     private static PaymentRequest cardRequest(CardData card, PaymentMethod method) {
-        return new PaymentRequest(UUID.randomUUID(), method, AMOUNT, "BRL", card);
+        return new PaymentRequest(UUID.randomUUID(), UUID.randomUUID(), method, AMOUNT, "BRL", card);
     }
 }

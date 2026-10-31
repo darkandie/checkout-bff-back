@@ -80,6 +80,7 @@ class CheckoutServiceTest {
         assertThat(charged.getValue().amount()).isEqualByComparingTo("39.90");
         assertThat(charged.getValue().currency()).isEqualTo("BRL");
         assertThat(charged.getValue().method().type()).isEqualTo(PaymentMethodType.CREDIT_CARD);
+        assertThat(charged.getValue().idempotencyKey()).isEqualTo(cart.getAttempt().orElseThrow().id());
 
         assertThat(result.getStatus()).isEqualTo(CartStatus.APPROVED);
         PaymentDetails payment = result.getPayment().orElseThrow();
@@ -252,7 +253,9 @@ class CheckoutServiceTest {
 
         assertThat(result.getStatus()).isEqualTo(CartStatus.APPROVED);
         assertThat(result.getAttempt().orElseThrow().id()).isEqualTo(stuckAttempt.id());
-        verify(paymentGateway).charge(any());
+        ArgumentCaptor<PaymentRequest> charged = ArgumentCaptor.forClass(PaymentRequest.class);
+        verify(paymentGateway).charge(charged.capture());
+        assertThat(charged.getValue().idempotencyKey()).isEqualTo(stuckAttempt.id());
     }
 
     @Test
