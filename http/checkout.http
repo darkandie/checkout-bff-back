@@ -1,0 +1,88 @@
+@baseUrl = http://localhost:8080
+
+### Pré-checkout com produto válido
+# @name preCheckout
+POST {{baseUrl}}/operations/pre-checkout
+Content-Type: application/json
+
+{
+  "products": [{ "slug": "premium" }]
+}
+
+### Pré-checkout com produto inexistente
+POST {{baseUrl}}/operations/pre-checkout
+Content-Type: application/json
+
+{
+  "products": [{ "slug": "premium" }, { "slug": "ultra" }]
+}
+
+### Checkout recusado (cartão terminado em 0002)
+POST {{baseUrl}}/operations/checkout
+Content-Type: application/json
+
+{
+  "cartId": "{{preCheckout.response.body.cartId}}",
+  "paymentMethod": {
+    "name": "Cartão de Crédito",
+    "card": {
+      "holderName": "Ana Souza",
+      "number": "4000000000000002",
+      "expiry": "12/28",
+      "cvv": "123"
+    }
+  }
+}
+
+### Checkout aprovado com cartão (retentativa após recusa)
+POST {{baseUrl}}/operations/checkout
+Content-Type: application/json
+
+{
+  "cartId": "{{preCheckout.response.body.cartId}}",
+  "paymentMethod": {
+    "name": "Cartão de Crédito",
+    "card": {
+      "holderName": "Ana Souza",
+      "number": "4111111111114242",
+      "expiry": "12/28",
+      "cvv": "123"
+    }
+  }
+}
+
+### Pagamento duplicado do mesmo carrinho
+POST {{baseUrl}}/operations/checkout
+Content-Type: application/json
+
+{
+  "cartId": "{{preCheckout.response.body.cartId}}",
+  "paymentMethod": { "name": "Pix" }
+}
+
+### Novo carrinho para Pix
+# @name pixCart
+POST {{baseUrl}}/operations/pre-checkout
+Content-Type: application/json
+
+{
+  "products": [{ "slug": "familia" }]
+}
+
+### Checkout aprovado com Pix
+POST {{baseUrl}}/operations/checkout
+Content-Type: application/json
+
+{
+  "cartId": "{{pixCart.response.body.cartId}}",
+  "paymentMethod": { "name": "Pix" }
+}
+
+### Carrinho inexistente
+POST {{baseUrl}}/operations/checkout
+Content-Type: application/json
+
+{
+  "cartId": "00000000-0000-0000-0000-000000000000",
+  "paymentMethod": { "name": "Pix" }
+}
