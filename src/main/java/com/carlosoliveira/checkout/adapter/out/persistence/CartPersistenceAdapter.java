@@ -1,5 +1,6 @@
 package com.carlosoliveira.checkout.adapter.out.persistence;
 
+import com.carlosoliveira.checkout.adapter.out.persistence.outbox.OutboxPersistenceAdapter;
 import com.carlosoliveira.checkout.application.port.out.CartRepositoryPort;
 import com.carlosoliveira.checkout.domain.cart.Cart;
 import com.carlosoliveira.checkout.domain.cart.CartStatus;
@@ -16,10 +17,12 @@ import java.util.UUID;
 public class CartPersistenceAdapter implements CartRepositoryPort {
 
     private final CartJpaRepository repository;
+    private final OutboxPersistenceAdapter outbox;
     private final Clock clock;
 
-    public CartPersistenceAdapter(CartJpaRepository repository, Clock clock) {
+    public CartPersistenceAdapter(CartJpaRepository repository, OutboxPersistenceAdapter outbox, Clock clock) {
         this.repository = repository;
+        this.outbox = outbox;
         this.clock = clock;
     }
 
@@ -27,6 +30,7 @@ public class CartPersistenceAdapter implements CartRepositoryPort {
     @Transactional
     public Cart save(Cart cart) {
         CartJpaEntity saved = repository.save(CartJpaMapper.toEntity(cart, Instant.now(clock)));
+        outbox.append(cart.pullDomainEvents());
         return CartJpaMapper.toDomain(saved);
     }
 
