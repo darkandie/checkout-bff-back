@@ -1,6 +1,9 @@
 package com.carlosoliveira.checkout.domain.cart;
 
 import com.carlosoliveira.checkout.domain.catalog.Product;
+import com.carlosoliveira.checkout.domain.event.DomainEvent;
+import com.carlosoliveira.checkout.domain.event.PaymentApproved;
+import com.carlosoliveira.checkout.domain.event.PaymentDeclined;
 import com.carlosoliveira.checkout.domain.exception.CheckoutException;
 import com.carlosoliveira.checkout.domain.payment.PaymentMethod;
 import com.carlosoliveira.checkout.domain.payment.PaymentResult;
@@ -8,6 +11,7 @@ import com.carlosoliveira.checkout.domain.payment.PaymentResult;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -20,6 +24,7 @@ public class Cart {
     private final List<PaymentMethod> paymentMethods;
     private final Instant createdAt;
     private final Instant expiresAt;
+    private final List<DomainEvent> domainEvents = new ArrayList<>();
     private CartStatus status;
     private PaymentAttempt attempt;
     private PaymentDetails payment;
@@ -124,11 +129,39 @@ public class Cart {
                 currency(),
                 result.processedAt()
         );
+        domainEvents.add(new PaymentApproved(
+                UUID.randomUUID(),
+                id,
+                result.processedAt(),
+                attempt.id(),
+                result.transactionId(),
+                method.type(),
+                payment.amount(),
+                payment.currency(),
+                items.stream().map(CartItem::slug).toList()
+        ));
     }
 
-    public void decline() {
+    public void decline(PaymentMethod method, PaymentResult result) {
         requireProcessing();
+        if (result.isApproved()) {
+            throw new IllegalArgumentException("payment result is approved");
+        }
         status = CartStatus.DECLINED;
+        domainEvents.add(new PaymentDeclined(
+                UUID.randomUUID(),
+                id,
+                result.processedAt(),
+                attempt.id(),
+                result.transactionId(),
+                method.type()
+        ));
+    }
+
+    public List<DomainEvent> pullDomainEvents() {
+        List<DomainEvent> pulled = List.copyOf(domainEvents);
+        domainEvents.clear();
+        return pulled;
     }
 
     public boolean isProcessingStale(Instant now, Duration processingTimeout) {

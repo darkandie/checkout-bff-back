@@ -1,6 +1,9 @@
 package com.carlosoliveira.checkout.domain.cart;
 
 import com.carlosoliveira.checkout.domain.catalog.Product;
+import com.carlosoliveira.checkout.domain.event.DomainEvent;
+import com.carlosoliveira.checkout.domain.event.PaymentApproved;
+import com.carlosoliveira.checkout.domain.event.PaymentDeclined;
 import com.carlosoliveira.checkout.domain.exception.ErrorCode;
 import com.carlosoliveira.checkout.domain.payment.PaymentMethodType;
 import com.carlosoliveira.checkout.domain.payment.PaymentResult;
@@ -150,7 +153,7 @@ class CartTest {
     void retriesAfterDecline() {
         Cart cart = newCart(PREMIUM);
         cart.startProcessing(NOW, PROCESSING_TIMEOUT);
-        cart.decline();
+        cart.decline(CREDIT_CARD, PaymentResult.declined("tx-declined", NOW));
 
         assertThat(cart.getStatus()).isEqualTo(CartStatus.DECLINED);
         cart.ensurePayable(NOW, PROCESSING_TIMEOUT);
@@ -176,7 +179,8 @@ class CartTest {
 
         assertThat(catchThrowable(() -> approved.startProcessing(NOW, PROCESSING_TIMEOUT)))
                 .isInstanceOf(IllegalStateException.class);
-        assertThat(catchThrowable(created::decline)).isInstanceOf(IllegalStateException.class);
+        assertThat(catchThrowable(() -> created.decline(CREDIT_CARD, PaymentResult.declined("tx", NOW))))
+                .isInstanceOf(IllegalStateException.class);
         assertThat(catchThrowable(() -> created.approve(PIX, PaymentResult.approvedPix("tx", "000201", NOW))))
                 .isInstanceOf(IllegalStateException.class);
     }
@@ -199,7 +203,7 @@ class CartTest {
 
         cart.startProcessing(NOW, PROCESSING_TIMEOUT);
         PaymentAttempt first = cart.getAttempt().orElseThrow();
-        cart.decline();
+        cart.decline(CREDIT_CARD, PaymentResult.declined("tx-declined", NOW));
         cart.startProcessing(NOW.plusSeconds(10), PROCESSING_TIMEOUT);
         PaymentAttempt second = cart.getAttempt().orElseThrow();
 
@@ -254,5 +258,58 @@ class CartTest {
                 PAYMENT_METHODS, CartStatus.PROCESSING, NOW, NOW.plus(CART_TTL), null, null));
 
         assertThat(thrown).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("raises PaymentApproved with the payment details once and only once")
+    void raisesPaymentApproved() {
+        Cart cart = newCart(PREMIUM, FAMILIA);
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
+        UUID attemptId = cart.getAttempt().orElseThrow().id();
+
+        cart.approve(PIX, PaymentResult.approvedPix("tx-9", "000201", NOW));
+        List<DomainEvent> events = cart.pullDomainEvents();
+
+        assertThat(events).hasSize(1);
+        PaymentApproved approved = (PaymentApproved) events.get(0);
+        assertThat(approved.eventId()).isNotNull();
+        assertThat(approved.cartId()).isEqualTo(cart.getId());
+        assertThat(approved.attemptId()).isEqualTo(attemptId);
+        assertThat(approved.transactionId()).isEqualTo("tx-9");
+        assertThat(approved.paymentMethod()).isEqualTo(PaymentMethodType.PIX);
+        assertThat(approved.amount()).isEqualByComparingTo("99.80");
+        assertThat(approved.currency()).isEqualTo("BRL");
+        assertThat(approved.productSlugs()).containsExactly("premium", "familia");
+        assertThat(approved.occurredAt()).isEqualTo(NOW);
+        assertThat(cart.pullDomainEvents()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("raises PaymentDeclined when the payment is declined")
+    void raisesPaymentDeclined() {
+        Cart cart = newCart(PREMIUM);
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
+
+        cart.decline(CREDIT_CARD, PaymentResult.declined("tx-declined", NOW));
+        List<DomainEvent> events = cart.pullDomainEvents();
+
+        assertThat(events).hasSize(1);
+        PaymentDeclined declined = (PaymentDeclined) events.get(0);
+        assertThat(declined.cartId()).isEqualTo(cart.getId());
+        assertThat(declined.transactionId()).isEqualTo("tx-declined");
+        assertThat(declined.paymentMethod()).isEqualTo(PaymentMethodType.CREDIT_CARD);
+    }
+
+    @Test
+    @DisplayName("refuses to decline with an approved payment result")
+    void refusesApprovedResultOnDecline() {
+        Cart cart = newCart(PREMIUM);
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
+
+        Throwable thrown = catchThrowable(() ->
+                cart.decline(CREDIT_CARD, PaymentResult.approvedCard("tx", "4242", NOW)));
+
+        assertThat(thrown).isInstanceOf(IllegalArgumentException.class);
+        assertThat(cart.pullDomainEvents()).isEmpty();
     }
 }

@@ -84,7 +84,7 @@ public class CheckoutService {
             return cartRepository.save(cart);
         }
 
-        cart.decline();
+        cart.decline(method, result);
         cartRepository.save(cart);
         log.info("Payment declined cartId={} method={} transactionId={}",
                 cart.getId(), method.type(), result.transactionId());

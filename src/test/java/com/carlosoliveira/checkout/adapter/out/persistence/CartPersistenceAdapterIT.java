@@ -128,7 +128,7 @@ class CartPersistenceAdapterIT extends IntegrationTestSupport {
         adapter.save(cart);
         cart.startProcessing(NOW, PROCESSING_TIMEOUT);
         adapter.claimForProcessing(cart, NOW.minus(PROCESSING_TIMEOUT));
-        cart.decline();
+        cart.decline(CREDIT_CARD, PaymentResult.declined("tx-declined", NOW));
         adapter.save(cart);
 
         Cart retry = adapter.findById(cart.getId()).orElseThrow();
