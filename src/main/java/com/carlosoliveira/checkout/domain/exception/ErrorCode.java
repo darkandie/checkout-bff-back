@@ -1,0 +1,13 @@
+package com.carlosoliveira.checkout.domain.exception;
+
+public enum ErrorCode {
+    PRODUCT_NOT_FOUND,
+    CART_NOT_FOUND,
+    CART_EXPIRED,
+    PAYMENT_METHOD_NOT_ALLOWED,
+    INVALID_PAYMENT_DATA,
+    PAYMENT_DECLINED,
+    PAYMENT_ALREADY_APPROVED,
+    PAYMENT_IN_PROGRESS,
+    EXTERNAL_SERVICE_UNAVAILABLE
+}
