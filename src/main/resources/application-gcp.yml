@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: jdbc:postgresql:///${DATABASE_NAME:checkout}?cloudSqlInstance=${CLOUD_SQL_INSTANCE}&socketFactory=com.google.cloud.sql.postgres.SocketFactory
+    hikari:
+      maximum-pool-size: ${DATABASE_POOL_SIZE:5}
+  cache:
+    type: ${CACHE_TYPE:none}
+
+server:
+  forward-headers-strategy: framework
+
+logging:
+  structured:
+    format:
+      console: ecs
