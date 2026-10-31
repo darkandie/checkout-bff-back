@@ -9,6 +9,7 @@ BFF (Backend for Frontend) do checkout de assinaturas. Monta o carrinho a partir
 - Java 21 e Spring Boot 3.5
 - PostgreSQL com migrações Flyway
 - Redis como cache dos serviços externos
+- RabbitMQ para eventos de pagamento, com transactional outbox
 - RestClient para consumir os serviços de produtos e meios de pagamento
 - springdoc-openapi (Swagger UI)
 - Docker e Docker Compose
@@ -21,18 +22,21 @@ O projeto segue ports and adapters. O domínio não conhece Spring, HTTP nem ban
 
 ```
 src/main/java/com/carlosoliveira/checkout
-├── domain                 regras de negócio puras (Cart, Product, PaymentMethod, erros)
+├── domain                 regras de negócio puras (Cart, Product, PaymentMethod, eventos, erros)
 ├── application
 │   ├── port/out           contratos com o mundo externo
 │   ├── precheckout        caso de uso de pré-checkout
-│   └── checkout           caso de uso de checkout
+│   ├── checkout           caso de uso de checkout
+│   └── outbox             relay dos eventos do outbox
 ├── adapter
 │   ├── in/web             controllers, DTOs, contrato de erro e filtros HTTP
+│   ├── in/scheduler       agendamento do relay do outbox
 │   └── out
 │       ├── catalog        cliente HTTP do serviço de produtos
 │       ├── paymentmethod  cliente HTTP do serviço de meios de pagamento
 │       ├── payment        gateway de pagamento simulado
-│       └── persistence    carrinhos no PostgreSQL
+│       ├── persistence    carrinhos e outbox no PostgreSQL
+│       └── messaging      publicação dos eventos no RabbitMQ
 ├── mock                   serviços externos simulados (produtos e meios de pagamento)
 └── config                 configuração de infraestrutura
 ```
@@ -56,7 +60,7 @@ docker compose up -d
 mvn spring-boot:run
 ```
 
-A API sobe em `http://localhost:8080`.
+A API sobe em `http://localhost:8080`. O painel do RabbitMQ fica em `http://localhost:15672` (guest/guest).
 
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
 - Health: `http://localhost:8080/actuator/health`
@@ -79,7 +83,7 @@ mvn verify
 | Adapters | Clientes HTTP com `MockRestServiceServer`, gateway simulado e geração do código Pix com CRC16 |
 | Contrato HTTP | `@WebMvcTest` dos dois endpoints e invariantes do catálogo de erros: mesmo formato em todos os cenários |
 | Arquitetura | ArchUnit garante as fronteiras de ports and adapters |
-| Integração | Fluxos ponta a ponta com PostgreSQL: retentativa após recusa, pagamento duplicado, Pix, carrinho expirado, oito checkouts concorrentes do mesmo carrinho resultando em uma única aprovação e verificação de que o número do cartão nunca chega ao banco |
+| Integração | Fluxos ponta a ponta com PostgreSQL e RabbitMQ: retentativa após recusa, pagamento duplicado, Pix, carrinho expirado, oito checkouts concorrentes do mesmo carrinho resultando em uma única aprovação e verificação de que o número do cartão nunca chega ao banco, recuperação de carrinho travado e entrega dos eventos do outbox |
 
 ## Integração contínua
 
@@ -191,6 +195,9 @@ Falhas de negócio usam 4xx, como pede o contrato. Indisponibilidade de serviço
 - **Dados sensíveis.** Número completo do cartão e CVV não são persistidos nem logados. Apenas os quatro últimos dígitos são gravados, e os objetos de cartão mascaram o próprio `toString`.
 - **Cache tolerante a falhas.** Produtos e meios de pagamento ficam em cache no Redis com TTL configurável. Se o Redis cair, o BFF registra o erro e consulta os serviços diretamente.
 - **Carrinho com expiração.** Carrinhos expiram após `CART_TTL` (30 minutos por padrão).
+- **Recuperação de pagamentos travados.** Cada cobrança abre uma tentativa de pagamento com id e horário de início, que funciona como um lease. Se a instância cair no meio da cobrança, o carrinho não fica preso em `PROCESSING`: passado o `PAYMENT_PROCESSING_TIMEOUT` (2 minutos), o próximo checkout assume o carrinho com o mesmo update condicional atômico. A recuperação acontece sob demanda, no próprio checkout, e por isso funciona no Cloud Run, onde a CPU fica restrita entre requisições.
+- **Cobrança idempotente.** O id da tentativa vai como chave de idempotência para o gateway. Uma cobrança repetida na mesma tentativa (como na recuperação acima) devolve o resultado original em vez de cobrar de novo; uma nova tentativa depois de uma recusa é cobrada normalmente.
+- **Eventos com transactional outbox.** Aprovação e recusa geram os eventos `payment.approved` e `payment.declined`, gravados na tabela `outbox_events` na mesma transação que atualiza o carrinho. Um relay agendado publica no exchange `checkout.events` do RabbitMQ usando `FOR UPDATE SKIP LOCKED` (várias instâncias sem disputa) e publisher confirms, marcando o evento como publicado só depois da confirmação do broker. A entrega é at-least-once, e o `messageId` de cada mensagem é o id do evento, para deduplicação nos consumidores. O checkout continua síncrono, como o contrato exige; os eventos servem a quem vem depois (ativação da assinatura, notificações).
 - **Rastreabilidade.** Cada requisição recebe (ou propaga) um `X-Correlation-Id`, presente em todas as linhas de log.
 
 ## Configuração
@@ -208,3 +215,9 @@ Falhas de negócio usam 4xx, como pede o contrato. Indisponibilidade de serviço
 | `PRODUCT_SERVICE_URL` | mock local | URL do serviço de produtos |
 | `PAYMENT_METHOD_SERVICE_URL` | mock local | URL do serviço de meios de pagamento |
 | `PAYMENT_DECLINED_CARD_SUFFIX` | `0002` | Final de cartão recusado pelo gateway simulado |
+| `PAYMENT_PROCESSING_TIMEOUT` | `2m` | Tempo até um pagamento em processamento poder ser recuperado |
+| `RABBITMQ_HOST` / `RABBITMQ_PORT` | `localhost` / `5672` | Endereço do RabbitMQ |
+| `EVENTS_PUBLISHER` | `rabbit` | `rabbit` ou `log` (apenas registra os eventos) |
+| `OUTBOX_RELAY_ENABLED` | `true` | Liga o relay agendado do outbox |
+| `OUTBOX_RELAY_INTERVAL_MS` | `2000` | Intervalo entre execuções do relay |
+| `OUTBOX_BATCH_SIZE` | `50` | Eventos publicados por execução |

@@ -74,6 +74,7 @@ A URL pública aparece no environment `production` e em `terraform output servic
 - **Senha no Secret Manager.** O Cloud Run lê a senha como variável de ambiente vinda do secret, então ela não aparece na configuração do serviço. A senha também fica no state do Terraform, por isso o bucket é privado e versionado. O próximo passo seria IAM database authentication, eliminando a senha.
 - **Identidades separadas.** A service account de runtime só acessa o banco e o secret. A de deploy só envia imagens para este repositório, publica revisões deste serviço e atua como a de runtime.
 - **Sem Redis na nuvem por padrão.** O Memorystore tem custo fixo alto para um ambiente de avaliação, e a aplicação funciona sem cache. Para ligar, defina `CACHE_TYPE=redis` e `REDIS_HOST` no serviço.
+- **Eventos registrados em log na nuvem.** Não há RabbitMQ gerenciado no GCP, então o profile `gcp` usa o publisher de log: os eventos continuam passando pelo outbox e aparecem no Cloud Logging. Como a publicação depende de uma porta (`EventPublisherPort`), um adapter para Pub/Sub entraria sem mudar domínio nem casos de uso.
 - **Escala a zero.** Sem tráfego, o Cloud Run não cobra por instâncias; o startup CPU boost reduz o cold start da JVM.
 
 ## Custos e limpeza
