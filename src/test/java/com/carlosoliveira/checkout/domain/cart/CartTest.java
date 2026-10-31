@@ -8,6 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,6 +20,7 @@ import static com.carlosoliveira.checkout.support.Fixtures.NOW;
 import static com.carlosoliveira.checkout.support.Fixtures.PAYMENT_METHODS;
 import static com.carlosoliveira.checkout.support.Fixtures.PIX;
 import static com.carlosoliveira.checkout.support.Fixtures.PREMIUM;
+import static com.carlosoliveira.checkout.support.Fixtures.PROCESSING_TIMEOUT;
 import static com.carlosoliveira.checkout.support.Fixtures.approvedCart;
 import static com.carlosoliveira.checkout.support.Fixtures.newCart;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -91,7 +93,7 @@ class CartTest {
     void payableWhenCreated() {
         Cart cart = newCart(PREMIUM);
 
-        cart.ensurePayable(NOW.plus(CART_TTL).minusSeconds(1));
+        cart.ensurePayable(NOW.plus(CART_TTL).minusSeconds(1), PROCESSING_TIMEOUT);
 
         assertThat(cart.getStatus().isPayable()).isTrue();
     }
@@ -101,7 +103,7 @@ class CartTest {
     void notPayableWhenExpired() {
         Cart cart = newCart(PREMIUM);
 
-        assertThat(errorCodeOf(() -> cart.ensurePayable(NOW.plus(CART_TTL))))
+        assertThat(errorCodeOf(() -> cart.ensurePayable(NOW.plus(CART_TTL), PROCESSING_TIMEOUT)))
                 .isEqualTo(ErrorCode.CART_EXPIRED);
     }
 
@@ -110,7 +112,7 @@ class CartTest {
     void notPayableWhenApproved() {
         Cart cart = approvedCart(PREMIUM);
 
-        assertThat(errorCodeOf(() -> cart.ensurePayable(NOW)))
+        assertThat(errorCodeOf(() -> cart.ensurePayable(NOW, PROCESSING_TIMEOUT)))
                 .isEqualTo(ErrorCode.PAYMENT_ALREADY_APPROVED);
     }
 
@@ -118,9 +120,9 @@ class CartTest {
     @DisplayName("is not payable while another payment is processing")
     void notPayableWhenProcessing() {
         Cart cart = newCart(PREMIUM);
-        cart.startProcessing();
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
 
-        assertThat(errorCodeOf(() -> cart.ensurePayable(NOW)))
+        assertThat(errorCodeOf(() -> cart.ensurePayable(NOW, PROCESSING_TIMEOUT)))
                 .isEqualTo(ErrorCode.PAYMENT_IN_PROGRESS);
     }
 
@@ -128,7 +130,7 @@ class CartTest {
     @DisplayName("records payment details when approved")
     void approves() {
         Cart cart = newCart(PREMIUM);
-        cart.startProcessing();
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
 
         cart.approve(CREDIT_CARD, PaymentResult.approvedCard("tx-1", "4242", NOW));
 
@@ -147,19 +149,19 @@ class CartTest {
     @DisplayName("allows a new attempt after a declined payment")
     void retriesAfterDecline() {
         Cart cart = newCart(PREMIUM);
-        cart.startProcessing();
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
         cart.decline();
 
         assertThat(cart.getStatus()).isEqualTo(CartStatus.DECLINED);
-        cart.ensurePayable(NOW);
-        assertThat(cart.startProcessing()).isEqualTo(CartStatus.DECLINED);
+        cart.ensurePayable(NOW, PROCESSING_TIMEOUT);
+        assertThat(cart.startProcessing(NOW, PROCESSING_TIMEOUT)).isEqualTo(CartStatus.DECLINED);
     }
 
     @Test
     @DisplayName("restores the previous status when processing is aborted")
     void abortsProcessing() {
         Cart cart = newCart(PREMIUM);
-        CartStatus previous = cart.startProcessing();
+        CartStatus previous = cart.startProcessing(NOW, PROCESSING_TIMEOUT);
 
         cart.abortProcessing(previous);
 
@@ -172,7 +174,8 @@ class CartTest {
         Cart approved = approvedCart(PREMIUM);
         Cart created = newCart(PREMIUM);
 
-        assertThat(catchThrowable(approved::startProcessing)).isInstanceOf(IllegalStateException.class);
+        assertThat(catchThrowable(() -> approved.startProcessing(NOW, PROCESSING_TIMEOUT)))
+                .isInstanceOf(IllegalStateException.class);
         assertThat(catchThrowable(created::decline)).isInstanceOf(IllegalStateException.class);
         assertThat(catchThrowable(() -> created.approve(PIX, PaymentResult.approvedPix("tx", "000201", NOW))))
                 .isInstanceOf(IllegalStateException.class);
@@ -182,9 +185,73 @@ class CartTest {
     @DisplayName("refuses to approve with a declined payment result")
     void refusesDeclinedResultOnApprove() {
         Cart cart = newCart(PREMIUM);
-        cart.startProcessing();
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
 
         Throwable thrown = catchThrowable(() -> cart.approve(CREDIT_CARD, PaymentResult.declined("tx", NOW)));
+
+        assertThat(thrown).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("starts a new payment attempt each time processing starts from a payable status")
+    void startsNewAttempt() {
+        Cart cart = newCart(PREMIUM);
+
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
+        PaymentAttempt first = cart.getAttempt().orElseThrow();
+        cart.decline();
+        cart.startProcessing(NOW.plusSeconds(10), PROCESSING_TIMEOUT);
+        PaymentAttempt second = cart.getAttempt().orElseThrow();
+
+        assertThat(first.startedAt()).isEqualTo(NOW);
+        assertThat(second.id()).isNotEqualTo(first.id());
+        assertThat(second.startedAt()).isEqualTo(NOW.plusSeconds(10));
+    }
+
+    @Test
+    @DisplayName("treats processing as stale once the processing timeout elapses")
+    void detectsStaleProcessing() {
+        Cart cart = newCart(PREMIUM);
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
+
+        assertThat(cart.isProcessingStale(NOW.plus(PROCESSING_TIMEOUT).minusSeconds(1), PROCESSING_TIMEOUT)).isFalse();
+        assertThat(cart.isProcessingStale(NOW.plus(PROCESSING_TIMEOUT), PROCESSING_TIMEOUT)).isTrue();
+    }
+
+    @Test
+    @DisplayName("recovers stale processing keeping the same attempt id with a renewed lease")
+    void recoversStaleProcessing() {
+        Cart cart = newCart(PREMIUM);
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
+        PaymentAttempt stuck = cart.getAttempt().orElseThrow();
+        Instant later = NOW.plus(PROCESSING_TIMEOUT).plusSeconds(1);
+
+        cart.ensurePayable(later, PROCESSING_TIMEOUT);
+        CartStatus previous = cart.startProcessing(later, PROCESSING_TIMEOUT);
+
+        assertThat(previous).isEqualTo(CartStatus.PROCESSING);
+        assertThat(cart.getAttempt().orElseThrow().id()).isEqualTo(stuck.id());
+        assertThat(cart.getAttempt().orElseThrow().startedAt()).isEqualTo(later);
+    }
+
+    @Test
+    @DisplayName("falls back to CREATED when aborting a recovered attempt")
+    void abortsRecoveredAttempt() {
+        Cart cart = newCart(PREMIUM);
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
+        Instant later = NOW.plus(PROCESSING_TIMEOUT);
+        CartStatus previous = cart.startProcessing(later, PROCESSING_TIMEOUT);
+
+        cart.abortProcessing(previous);
+
+        assertThat(cart.getStatus()).isEqualTo(CartStatus.CREATED);
+    }
+
+    @Test
+    @DisplayName("refuses to restore a processing cart without a payment attempt")
+    void rejectsProcessingWithoutAttempt() {
+        Throwable thrown = catchThrowable(() -> Cart.restore(UUID.randomUUID(), newCart(PREMIUM).getItems(),
+                PAYMENT_METHODS, CartStatus.PROCESSING, NOW, NOW.plus(CART_TTL), null, null));
 
         assertThat(thrown).isInstanceOf(IllegalArgumentException.class);
     }

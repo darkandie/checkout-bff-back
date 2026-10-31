@@ -12,5 +12,5 @@ public interface CartRepositoryPort {
 
     Optional<Cart> findById(UUID id);
 
-    boolean claimForProcessing(UUID id, Instant now);
+    boolean claimForProcessing(Cart processingCart, Instant staleBefore);
 }

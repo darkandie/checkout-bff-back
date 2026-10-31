@@ -8,5 +8,5 @@ import java.time.Duration;
 
 @Validated
 @ConfigurationProperties(prefix = "checkout")
-public record CheckoutProperties(@NotNull Duration cartTtl) {
+public record CheckoutProperties(@NotNull Duration cartTtl, @NotNull Duration processingTimeout) {
 }

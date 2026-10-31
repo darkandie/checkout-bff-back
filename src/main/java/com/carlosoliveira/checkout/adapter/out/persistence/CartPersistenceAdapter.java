@@ -3,6 +3,7 @@ package com.carlosoliveira.checkout.adapter.out.persistence;
 import com.carlosoliveira.checkout.application.port.out.CartRepositoryPort;
 import com.carlosoliveira.checkout.domain.cart.Cart;
 import com.carlosoliveira.checkout.domain.cart.CartStatus;
+import com.carlosoliveira.checkout.domain.cart.PaymentAttempt;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,7 +38,16 @@ public class CartPersistenceAdapter implements CartRepositoryPort {
 
     @Override
     @Transactional
-    public boolean claimForProcessing(UUID id, Instant now) {
-        return repository.transitionStatus(id, CartStatus.payable(), CartStatus.PROCESSING, now) == 1;
+    public boolean claimForProcessing(Cart processingCart, Instant staleBefore) {
+        PaymentAttempt attempt = processingCart.getAttempt()
+                .orElseThrow(() -> new IllegalArgumentException("cart has no payment attempt"));
+        int updated = repository.claimForProcessing(
+                processingCart.getId(),
+                attempt.id(),
+                attempt.startedAt(),
+                CartStatus.payable(),
+                CartStatus.PROCESSING,
+                staleBefore);
+        return updated == 1;
     }
 }

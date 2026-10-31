@@ -1,9 +1,11 @@
 package com.carlosoliveira.checkout.application.checkout;
 
+import com.carlosoliveira.checkout.application.CheckoutProperties;
 import com.carlosoliveira.checkout.application.port.out.CartRepositoryPort;
 import com.carlosoliveira.checkout.application.port.out.PaymentGatewayPort;
 import com.carlosoliveira.checkout.domain.cart.Cart;
 import com.carlosoliveira.checkout.domain.cart.CartStatus;
+import com.carlosoliveira.checkout.domain.cart.PaymentAttempt;
 import com.carlosoliveira.checkout.domain.exception.CheckoutException;
 import com.carlosoliveira.checkout.domain.payment.CardData;
 import com.carlosoliveira.checkout.domain.payment.PaymentMethod;
@@ -14,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
@@ -26,11 +29,16 @@ public class CheckoutService {
 
     private final CartRepositoryPort cartRepository;
     private final PaymentGatewayPort paymentGateway;
+    private final CheckoutProperties properties;
     private final Clock clock;
 
-    public CheckoutService(CartRepositoryPort cartRepository, PaymentGatewayPort paymentGateway, Clock clock) {
+    public CheckoutService(CartRepositoryPort cartRepository,
+                           PaymentGatewayPort paymentGateway,
+                           CheckoutProperties properties,
+                           Clock clock) {
         this.cartRepository = cartRepository;
         this.paymentGateway = paymentGateway;
+        this.properties = properties;
         this.clock = clock;
     }
 
@@ -39,14 +47,19 @@ public class CheckoutService {
         Cart cart = cartRepository.findById(command.cartId())
                 .orElseThrow(() -> CheckoutException.cartNotFound(command.cartId()));
 
-        cart.ensurePayable(now);
+        Duration processingTimeout = properties.processingTimeout();
+        cart.ensurePayable(now, processingTimeout);
         PaymentMethod method = cart.resolvePaymentMethod(command.paymentMethodName());
         validatePaymentData(cart.getId(), method, command.card(), now);
 
-        if (!cartRepository.claimForProcessing(cart.getId(), now)) {
+        CartStatus previousStatus = cart.startProcessing(now, processingTimeout);
+        if (!cartRepository.claimForProcessing(cart, now.minus(processingTimeout))) {
             throw concurrentCheckoutConflict(cart.getId());
         }
-        CartStatus previousStatus = cart.startProcessing();
+        if (previousStatus == CartStatus.PROCESSING) {
+            log.warn("Recovering payment stuck in processing cartId={} attemptId={}",
+                    cart.getId(), cart.getAttempt().map(PaymentAttempt::id).orElse(null));
+        }
 
         PaymentResult result;
         try {

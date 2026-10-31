@@ -20,6 +20,7 @@ public final class Fixtures {
     public static final Instant NOW = Instant.parse("2026-10-31T12:00:00Z");
     public static final Clock FIXED_CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
     public static final Duration CART_TTL = Duration.ofMinutes(30);
+    public static final Duration PROCESSING_TIMEOUT = Duration.ofMinutes(2);
 
     public static final Product BASICO =
             new Product("basico", "Plano Básico", "Assinatura mensal com catálogo essencial", new BigDecimal("19.90"), "BRL");
@@ -44,7 +45,7 @@ public final class Fixtures {
 
     public static Cart approvedCart(Product... products) {
         Cart cart = newCart(products);
-        cart.startProcessing();
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
         cart.approve(CREDIT_CARD, PaymentResult.approvedCard("tx-approved", "4242", NOW));
         return cart;
     }

@@ -21,6 +21,7 @@ public class Cart {
     private final Instant createdAt;
     private final Instant expiresAt;
     private CartStatus status;
+    private PaymentAttempt attempt;
     private PaymentDetails payment;
 
     private Cart(UUID id,
@@ -29,6 +30,7 @@ public class Cart {
                  CartStatus status,
                  Instant createdAt,
                  Instant expiresAt,
+                 PaymentAttempt attempt,
                  PaymentDetails payment) {
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.items = List.copyOf(items);
@@ -36,12 +38,16 @@ public class Cart {
         this.status = Objects.requireNonNull(status, "status must not be null");
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null");
         this.expiresAt = Objects.requireNonNull(expiresAt, "expiresAt must not be null");
+        this.attempt = attempt;
         this.payment = payment;
         if (this.items.isEmpty()) {
             throw new IllegalArgumentException("cart must contain at least one item");
         }
         if (this.items.stream().map(CartItem::currency).distinct().count() > 1) {
             throw new IllegalArgumentException("cart items must share the same currency");
+        }
+        if (this.status == CartStatus.PROCESSING && this.attempt == null) {
+            throw new IllegalArgumentException("a processing cart must have a payment attempt");
         }
     }
 
@@ -51,7 +57,7 @@ public class Cart {
                               Instant now,
                               Duration ttl) {
         List<CartItem> items = products.stream().map(CartItem::from).toList();
-        return new Cart(id, items, paymentMethods, CartStatus.CREATED, now, now.plus(ttl), null);
+        return new Cart(id, items, paymentMethods, CartStatus.CREATED, now, now.plus(ttl), null, null);
     }
 
     public static Cart restore(UUID id,
@@ -60,19 +66,20 @@ public class Cart {
                                CartStatus status,
                                Instant createdAt,
                                Instant expiresAt,
+                               PaymentAttempt attempt,
                                PaymentDetails payment) {
-        return new Cart(id, items, paymentMethods, status, createdAt, expiresAt, payment);
+        return new Cart(id, items, paymentMethods, status, createdAt, expiresAt, attempt, payment);
     }
 
-    public void ensurePayable(Instant now) {
-        switch (status) {
-            case APPROVED -> throw CheckoutException.alreadyApproved(id);
-            case PROCESSING -> throw CheckoutException.paymentInProgress(id);
-            default -> {
-                if (isExpiredAt(now)) {
-                    throw CheckoutException.cartExpired(id);
-                }
-            }
+    public void ensurePayable(Instant now, Duration processingTimeout) {
+        if (status == CartStatus.APPROVED) {
+            throw CheckoutException.alreadyApproved(id);
+        }
+        if (status == CartStatus.PROCESSING && !isProcessingStale(now, processingTimeout)) {
+            throw CheckoutException.paymentInProgress(id);
+        }
+        if (isExpiredAt(now)) {
+            throw CheckoutException.cartExpired(id);
         }
     }
 
@@ -83,18 +90,22 @@ public class Cart {
                 .orElseThrow(() -> CheckoutException.paymentMethodNotAllowed(id, methodName));
     }
 
-    public CartStatus startProcessing() {
-        if (!status.isPayable()) {
+    public CartStatus startProcessing(Instant now, Duration processingTimeout) {
+        CartStatus previous = status;
+        if (status.isPayable()) {
+            attempt = PaymentAttempt.start(now);
+        } else if (isProcessingStale(now, processingTimeout)) {
+            attempt = attempt.renew(now);
+        } else {
             throw new IllegalStateException("cart " + id + " cannot start processing from status " + status);
         }
-        CartStatus previous = status;
         status = CartStatus.PROCESSING;
         return previous;
     }
 
     public void abortProcessing(CartStatus previous) {
         requireProcessing();
-        status = previous;
+        status = previous.isPayable() ? previous : CartStatus.CREATED;
     }
 
     public void approve(PaymentMethod method, PaymentResult result) {
@@ -118,6 +129,10 @@ public class Cart {
     public void decline() {
         requireProcessing();
         status = CartStatus.DECLINED;
+    }
+
+    public boolean isProcessingStale(Instant now, Duration processingTimeout) {
+        return status == CartStatus.PROCESSING && attempt.isStaleAt(now, processingTimeout);
     }
 
     public boolean isExpiredAt(Instant now) {
@@ -160,6 +175,10 @@ public class Cart {
 
     public Instant getExpiresAt() {
         return expiresAt;
+    }
+
+    public Optional<PaymentAttempt> getAttempt() {
+        return Optional.ofNullable(attempt);
     }
 
     public Optional<PaymentDetails> getPayment() {

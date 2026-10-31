@@ -47,6 +47,12 @@ public class CartJpaEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "payment_attempt_id")
+    private UUID paymentAttemptId;
+
+    @Column(name = "processing_started_at")
+    private Instant processingStartedAt;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "cart_items", joinColumns = @JoinColumn(name = "cart_id"))
     @OrderColumn(name = "item_order")
@@ -70,6 +76,8 @@ public class CartJpaEntity {
                          Instant createdAt,
                          Instant expiresAt,
                          Instant updatedAt,
+                         UUID paymentAttemptId,
+                         Instant processingStartedAt,
                          List<CartItemEmbeddable> items,
                          List<CartPaymentMethodEmbeddable> paymentMethods,
                          PaymentEmbeddable payment) {
@@ -80,6 +88,8 @@ public class CartJpaEntity {
         this.createdAt = createdAt;
         this.expiresAt = expiresAt;
         this.updatedAt = updatedAt;
+        this.paymentAttemptId = paymentAttemptId;
+        this.processingStartedAt = processingStartedAt;
         this.items = new ArrayList<>(items);
         this.paymentMethods = new ArrayList<>(paymentMethods);
         this.payment = payment;
@@ -111,6 +121,14 @@ public class CartJpaEntity {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public UUID getPaymentAttemptId() {
+        return paymentAttemptId;
+    }
+
+    public Instant getProcessingStartedAt() {
+        return processingStartedAt;
     }
 
     public List<CartItemEmbeddable> getItems() {

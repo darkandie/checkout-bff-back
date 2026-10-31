@@ -157,6 +157,43 @@ class CheckoutFlowIT extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("recovers a cart left in processing by a crashed instance once the timeout elapses")
+    void recoversStuckCart() throws Exception {
+        UUID cartId = preCheckout("premium");
+        UUID stuckAttempt = UUID.randomUUID();
+        jdbcTemplate.update("""
+                update carts
+                   set status = 'PROCESSING', payment_attempt_id = ?, processing_started_at = now() - interval '5 minutes'
+                 where id = ?
+                """, stuckAttempt, cartId);
+
+        checkout(pixPayload(cartId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APROVADO"));
+
+        UUID attempt = jdbcTemplate.queryForObject(
+                "select payment_attempt_id from carts where id = ?", UUID.class, cartId);
+        assertThat(attempt).isEqualTo(stuckAttempt);
+    }
+
+    @Test
+    @DisplayName("keeps blocking a cart that is processing within the timeout")
+    void blocksCartStillProcessing() throws Exception {
+        UUID cartId = preCheckout("premium");
+        jdbcTemplate.update("""
+                update carts
+                   set status = 'PROCESSING', payment_attempt_id = ?, processing_started_at = now()
+                 where id = ?
+                """, UUID.randomUUID(), cartId);
+
+        String body = checkout(pixPayload(cartId))
+                .andExpect(status().isConflict())
+                .andReturn().getResponse().getContentAsString();
+
+        assertFrontendError(body, "PAYMENT_IN_PROGRESS", "P-5002", cartId);
+    }
+
+    @Test
     @DisplayName("approves concurrent checkouts of the same cart exactly once")
     void concurrentCheckouts() throws Exception {
         UUID cartId = preCheckout("premium");

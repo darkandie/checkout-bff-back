@@ -21,6 +21,7 @@ import static com.carlosoliveira.checkout.support.ErrorContract.assertFrontendEr
 import static com.carlosoliveira.checkout.support.Fixtures.NOW;
 import static com.carlosoliveira.checkout.support.Fixtures.PIX;
 import static com.carlosoliveira.checkout.support.Fixtures.PREMIUM;
+import static com.carlosoliveira.checkout.support.Fixtures.PROCESSING_TIMEOUT;
 import static com.carlosoliveira.checkout.support.Fixtures.approvedCart;
 import static com.carlosoliveira.checkout.support.Fixtures.newCart;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -81,7 +82,7 @@ class CheckoutControllerTest {
     @DisplayName("returns the Pix code instead of card digits for Pix payments")
     void approvedPixPayment() throws Exception {
         Cart cart = newCart(PREMIUM);
-        cart.startProcessing();
+        cart.startProcessing(NOW, PROCESSING_TIMEOUT);
         cart.approve(PIX, PaymentResult.approvedPix("tx-pix", "00020126PIXCODE", NOW));
         when(checkoutService.checkout(any())).thenReturn(cart);
 

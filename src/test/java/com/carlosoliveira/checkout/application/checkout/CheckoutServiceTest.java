@@ -1,9 +1,11 @@
 package com.carlosoliveira.checkout.application.checkout;
 
+import com.carlosoliveira.checkout.application.CheckoutProperties;
 import com.carlosoliveira.checkout.application.port.out.CartRepositoryPort;
 import com.carlosoliveira.checkout.application.port.out.PaymentGatewayPort;
 import com.carlosoliveira.checkout.domain.cart.Cart;
 import com.carlosoliveira.checkout.domain.cart.CartStatus;
+import com.carlosoliveira.checkout.domain.cart.PaymentAttempt;
 import com.carlosoliveira.checkout.domain.cart.PaymentDetails;
 import com.carlosoliveira.checkout.domain.exception.CheckoutException;
 import com.carlosoliveira.checkout.domain.exception.ErrorCode;
@@ -16,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,6 +30,7 @@ import static com.carlosoliveira.checkout.support.Fixtures.FIXED_CLOCK;
 import static com.carlosoliveira.checkout.support.Fixtures.NOW;
 import static com.carlosoliveira.checkout.support.Fixtures.PAYMENT_METHODS;
 import static com.carlosoliveira.checkout.support.Fixtures.PREMIUM;
+import static com.carlosoliveira.checkout.support.Fixtures.PROCESSING_TIMEOUT;
 import static com.carlosoliveira.checkout.support.Fixtures.approvedCard;
 import static com.carlosoliveira.checkout.support.Fixtures.approvedCart;
 import static com.carlosoliveira.checkout.support.Fixtures.expiredCard;
@@ -44,6 +48,8 @@ import static org.mockito.Mockito.when;
 
 class CheckoutServiceTest {
 
+    private static final CheckoutProperties PROPERTIES = new CheckoutProperties(CART_TTL, PROCESSING_TIMEOUT);
+
     private CartRepositoryPort cartRepository;
     private PaymentGatewayPort paymentGateway;
     private CheckoutService service;
@@ -53,11 +59,11 @@ class CheckoutServiceTest {
     void setUp() {
         cartRepository = mock(CartRepositoryPort.class);
         paymentGateway = mock(PaymentGatewayPort.class);
-        service = new CheckoutService(cartRepository, paymentGateway, FIXED_CLOCK);
+        service = new CheckoutService(cartRepository, paymentGateway, PROPERTIES, FIXED_CLOCK);
 
         cart = newCart(PREMIUM);
         when(cartRepository.findById(cart.getId())).thenReturn(Optional.of(cart));
-        when(cartRepository.claimForProcessing(eq(cart.getId()), any())).thenReturn(true);
+        when(cartRepository.claimForProcessing(any(Cart.class), any())).thenReturn(true);
         when(cartRepository.save(any(Cart.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -140,7 +146,7 @@ class CheckoutServiceTest {
     @DisplayName("rejects an expired cart")
     void rejectsExpiredCart() {
         CheckoutService later = new CheckoutService(
-                cartRepository, paymentGateway, Clock.fixed(NOW.plus(CART_TTL), ZoneOffset.UTC));
+                cartRepository, paymentGateway, PROPERTIES, Clock.fixed(NOW.plus(CART_TTL), ZoneOffset.UTC));
 
         assertThat(errorCodeOf(() -> later.checkout(new CheckoutCommand(cart.getId(), "Pix", null))))
                 .isEqualTo(ErrorCode.CART_EXPIRED);
@@ -184,9 +190,9 @@ class CheckoutServiceTest {
     @DisplayName("reports PAYMENT_ALREADY_APPROVED when a concurrent request paid the cart first")
     void concurrentRequestApprovedFirst() {
         Cart paidMeanwhile = Cart.restore(cart.getId(), cart.getItems(), PAYMENT_METHODS,
-                CartStatus.APPROVED, cart.getCreatedAt(), cart.getExpiresAt(), null);
+                CartStatus.APPROVED, cart.getCreatedAt(), cart.getExpiresAt(), null, null);
         when(cartRepository.findById(cart.getId())).thenReturn(Optional.of(cart), Optional.of(paidMeanwhile));
-        when(cartRepository.claimForProcessing(eq(cart.getId()), any())).thenReturn(false);
+        when(cartRepository.claimForProcessing(any(Cart.class), any())).thenReturn(false);
 
         assertThat(errorCodeOf(() -> service.checkout(new CheckoutCommand(cart.getId(), "Pix", null))))
                 .isEqualTo(ErrorCode.PAYMENT_ALREADY_APPROVED);
@@ -197,9 +203,9 @@ class CheckoutServiceTest {
     @DisplayName("reports PAYMENT_IN_PROGRESS when a concurrent request is still processing")
     void concurrentRequestStillProcessing() {
         Cart processing = Cart.restore(cart.getId(), cart.getItems(), PAYMENT_METHODS,
-                CartStatus.PROCESSING, cart.getCreatedAt(), cart.getExpiresAt(), null);
+                CartStatus.PROCESSING, cart.getCreatedAt(), cart.getExpiresAt(), PaymentAttempt.start(NOW), null);
         when(cartRepository.findById(cart.getId())).thenReturn(Optional.of(cart), Optional.of(processing));
-        when(cartRepository.claimForProcessing(eq(cart.getId()), any())).thenReturn(false);
+        when(cartRepository.claimForProcessing(any(Cart.class), any())).thenReturn(false);
 
         assertThat(errorCodeOf(() -> service.checkout(new CheckoutCommand(cart.getId(), "Pix", null))))
                 .isEqualTo(ErrorCode.PAYMENT_IN_PROGRESS);
@@ -218,5 +224,47 @@ class CheckoutServiceTest {
         assertThat(thrown).isEqualTo(gatewayFailure);
         assertThat(cart.getStatus()).isEqualTo(CartStatus.CREATED);
         verify(cartRepository, times(1)).save(cart);
+    }
+
+    @Test
+    @DisplayName("claims the cart with a new payment attempt and a stale threshold based on the timeout")
+    void claimsWithNewAttempt() {
+        when(paymentGateway.charge(any())).thenReturn(PaymentResult.approvedPix("tx", "000201", NOW));
+
+        service.checkout(new CheckoutCommand(cart.getId(), "Pix", null));
+
+        ArgumentCaptor<Instant> staleBefore = ArgumentCaptor.forClass(Instant.class);
+        verify(cartRepository).claimForProcessing(eq(cart), staleBefore.capture());
+        assertThat(staleBefore.getValue()).isEqualTo(NOW.minus(PROCESSING_TIMEOUT));
+        assertThat(cart.getAttempt().orElseThrow().startedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    @DisplayName("recovers a cart stuck in processing after the timeout reusing its payment attempt")
+    void recoversStuckProcessing() {
+        PaymentAttempt stuckAttempt = PaymentAttempt.start(NOW.minus(PROCESSING_TIMEOUT).minusSeconds(30));
+        Cart stuck = Cart.restore(cart.getId(), cart.getItems(), PAYMENT_METHODS,
+                CartStatus.PROCESSING, cart.getCreatedAt(), cart.getExpiresAt(), stuckAttempt, null);
+        when(cartRepository.findById(cart.getId())).thenReturn(Optional.of(stuck));
+        when(paymentGateway.charge(any())).thenReturn(PaymentResult.approvedPix("tx-recovered", "000201", NOW));
+
+        Cart result = service.checkout(new CheckoutCommand(cart.getId(), "Pix", null));
+
+        assertThat(result.getStatus()).isEqualTo(CartStatus.APPROVED);
+        assertThat(result.getAttempt().orElseThrow().id()).isEqualTo(stuckAttempt.id());
+        verify(paymentGateway).charge(any());
+    }
+
+    @Test
+    @DisplayName("keeps rejecting a cart that is processing within the timeout")
+    void rejectsFreshProcessing() {
+        Cart processing = Cart.restore(cart.getId(), cart.getItems(), PAYMENT_METHODS,
+                CartStatus.PROCESSING, cart.getCreatedAt(), cart.getExpiresAt(),
+                PaymentAttempt.start(NOW.minusSeconds(10)), null);
+        when(cartRepository.findById(cart.getId())).thenReturn(Optional.of(processing));
+
+        assertThat(errorCodeOf(() -> service.checkout(new CheckoutCommand(cart.getId(), "Pix", null))))
+                .isEqualTo(ErrorCode.PAYMENT_IN_PROGRESS);
+        verifyNoInteractions(paymentGateway);
     }
 }

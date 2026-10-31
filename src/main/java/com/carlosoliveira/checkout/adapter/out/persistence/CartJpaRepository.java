@@ -15,12 +15,18 @@ interface CartJpaRepository extends JpaRepository<CartJpaEntity, UUID> {
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update CartJpaEntity c
-               set c.status = :target, c.updatedAt = :now
+               set c.status = :processing,
+                   c.paymentAttemptId = :attemptId,
+                   c.processingStartedAt = :startedAt,
+                   c.updatedAt = :startedAt
              where c.id = :id
-               and c.status in :allowed
+               and (c.status in :payable
+                    or (c.status = :processing and c.processingStartedAt <= :staleBefore))
             """)
-    int transitionStatus(@Param("id") UUID id,
-                         @Param("allowed") Collection<CartStatus> allowed,
-                         @Param("target") CartStatus target,
-                         @Param("now") Instant now);
+    int claimForProcessing(@Param("id") UUID id,
+                           @Param("attemptId") UUID attemptId,
+                           @Param("startedAt") Instant startedAt,
+                           @Param("payable") Collection<CartStatus> payable,
+                           @Param("processing") CartStatus processing,
+                           @Param("staleBefore") Instant staleBefore);
 }

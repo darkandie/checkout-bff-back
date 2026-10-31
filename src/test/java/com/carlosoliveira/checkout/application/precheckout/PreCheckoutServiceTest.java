@@ -23,6 +23,7 @@ import static com.carlosoliveira.checkout.support.Fixtures.CATALOG;
 import static com.carlosoliveira.checkout.support.Fixtures.FIXED_CLOCK;
 import static com.carlosoliveira.checkout.support.Fixtures.NOW;
 import static com.carlosoliveira.checkout.support.Fixtures.PAYMENT_METHODS;
+import static com.carlosoliveira.checkout.support.Fixtures.PROCESSING_TIMEOUT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -43,7 +44,7 @@ class PreCheckoutServiceTest {
         paymentMethods = mock(PaymentMethodsPort.class);
         cartRepository = mock(CartRepositoryPort.class);
         service = new PreCheckoutService(
-                productCatalog, paymentMethods, cartRepository, new CheckoutProperties(CART_TTL), FIXED_CLOCK);
+                productCatalog, paymentMethods, cartRepository, new CheckoutProperties(CART_TTL, PROCESSING_TIMEOUT), FIXED_CLOCK);
 
         when(productCatalog.findAll()).thenReturn(CATALOG);
         when(paymentMethods.findAvailable()).thenReturn(PAYMENT_METHODS);

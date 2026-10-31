@@ -38,6 +38,7 @@ spring:
 
 checkout:
   cart-ttl: ${CART_TTL:30m}
+  processing-timeout: ${PAYMENT_PROCESSING_TIMEOUT:2m}
 
 mocks:
   enabled: ${MOCKS_ENABLED:true}

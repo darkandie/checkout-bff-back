@@ -2,6 +2,7 @@ package com.carlosoliveira.checkout.adapter.out.persistence;
 
 import com.carlosoliveira.checkout.domain.cart.Cart;
 import com.carlosoliveira.checkout.domain.cart.CartItem;
+import com.carlosoliveira.checkout.domain.cart.PaymentAttempt;
 import com.carlosoliveira.checkout.domain.cart.PaymentDetails;
 import com.carlosoliveira.checkout.domain.payment.PaymentMethod;
 
@@ -21,6 +22,8 @@ final class CartJpaMapper {
                 cart.getCreatedAt(),
                 cart.getExpiresAt(),
                 now,
+                cart.getAttempt().map(PaymentAttempt::id).orElse(null),
+                cart.getAttempt().map(PaymentAttempt::startedAt).orElse(null),
                 cart.getItems().stream()
                         .map(item -> new CartItemEmbeddable(
                                 item.slug(), item.name(), item.description(), item.price(), item.currency()))
@@ -45,8 +48,16 @@ final class CartJpaMapper {
                 entity.getStatus(),
                 entity.getCreatedAt(),
                 entity.getExpiresAt(),
+                toAttempt(entity),
                 toDomain(entity.getPayment())
         );
+    }
+
+    private static PaymentAttempt toAttempt(CartJpaEntity entity) {
+        if (entity.getPaymentAttemptId() == null || entity.getProcessingStartedAt() == null) {
+            return null;
+        }
+        return new PaymentAttempt(entity.getPaymentAttemptId(), entity.getProcessingStartedAt());
     }
 
     private static PaymentEmbeddable toEmbeddable(PaymentDetails payment) {
