@@ -1,5 +1,7 @@
 # Checkout BFF
 
+![CI](https://github.com/<seu-usuario>/checkout-bff/actions/workflows/ci.yml/badge.svg)
+
 BFF (Backend for Frontend) do checkout de assinaturas. Monta o carrinho a partir dos produtos escolhidos (pré-checkout) e conclui o pagamento simulado (checkout), devolvendo ao frontend apenas o que cada tela precisa: pagamento, sucesso ou erro.
 
 ## Stack
@@ -10,6 +12,8 @@ BFF (Backend for Frontend) do checkout de assinaturas. Monta o carrinho a partir
 - RestClient para consumir os serviços de produtos e meios de pagamento
 - springdoc-openapi (Swagger UI)
 - Docker e Docker Compose
+- JUnit 5, Mockito, Testcontainers, ArchUnit e JaCoCo
+- GitHub Actions
 
 ## Arquitetura
 
@@ -58,6 +62,28 @@ A API sobe em `http://localhost:8080`.
 - Health: `http://localhost:8080/actuator/health`
 
 Para rodar sem Redis, use `CACHE_TYPE=none`.
+
+## Testes
+
+```bash
+mvn test
+mvn verify
+```
+
+`mvn test` roda os testes unitários e de contrato, sem dependências externas. `mvn verify` roda também os testes de integração contra um PostgreSQL real via Testcontainers (requer Docker) e falha se a cobertura de linhas ficar abaixo de 80%. O relatório de cobertura fica em `target/site/jacoco/index.html`.
+
+| Camada | O que cobre |
+| --- | --- |
+| Domínio | Ciclo de vida do carrinho, transições de status, expiração, regras de cartão e preço |
+| Casos de uso | Pré-checkout e checkout com Mockito: aprovação, recusa, todas as falhas de negócio, concorrência e falha do gateway |
+| Adapters | Clientes HTTP com `MockRestServiceServer`, gateway simulado e geração do código Pix com CRC16 |
+| Contrato HTTP | `@WebMvcTest` dos dois endpoints e invariantes do catálogo de erros: mesmo formato em todos os cenários |
+| Arquitetura | ArchUnit garante as fronteiras de ports and adapters |
+| Integração | Fluxos ponta a ponta com PostgreSQL: retentativa após recusa, pagamento duplicado, Pix, carrinho expirado, oito checkouts concorrentes do mesmo carrinho resultando em uma única aprovação e verificação de que o número do cartão nunca chega ao banco |
+
+## Integração contínua
+
+O workflow [`ci.yml`](.github/workflows/ci.yml) roda em todo push na `main` e em pull requests: build, testes unitários e de integração, regras de arquitetura, gate de cobertura e build da imagem Docker. O Dependabot mantém dependências, actions e imagens base atualizadas.
 
 ## Endpoints
 
