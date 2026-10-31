@@ -36,6 +36,9 @@ spring:
       key-prefix: "checkout-bff::"
       cache-null-values: false
 
+checkout:
+  cart-ttl: ${CART_TTL:30m}
+
 mocks:
   enabled: ${MOCKS_ENABLED:true}
 
