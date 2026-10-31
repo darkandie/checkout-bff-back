@@ -13,7 +13,7 @@ BFF (Backend for Frontend) do checkout de assinaturas. Monta o carrinho a partir
 - springdoc-openapi (Swagger UI)
 - Docker e Docker Compose
 - JUnit 5, Mockito, Testcontainers, ArchUnit e JaCoCo
-- GitHub Actions
+- GitHub Actions, Terraform e Google Cloud (Cloud Run, Cloud SQL, Secret Manager, Artifact Registry)
 
 ## Arquitetura
 
@@ -84,6 +84,12 @@ mvn verify
 ## Integração contínua
 
 O workflow [`ci.yml`](.github/workflows/ci.yml) roda em todo push na `main` e em pull requests: build, testes unitários e de integração, regras de arquitetura, gate de cobertura e build da imagem Docker. O Dependabot mantém dependências, actions e imagens base atualizadas.
+
+## Deploy no GCP
+
+A API é publicada no Cloud Run, com Cloud SQL (PostgreSQL), Secret Manager e Artifact Registry, tudo provisionado com Terraform em [`infra/terraform`](infra/terraform). O workflow [`deploy.yml`](.github/workflows/deploy.yml) publica uma nova revisão a cada push na `main` com o CI verde, autenticando via Workload Identity Federation e validando com um smoke test.
+
+O passo a passo, as decisões de segurança e os custos estão em [`docs/deploy-gcp.md`](docs/deploy-gcp.md).
 
 ## Endpoints
 
