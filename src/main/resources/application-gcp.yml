@@ -6,6 +6,15 @@ spring:
   cache:
     type: ${CACHE_TYPE:none}
 
+checkout:
+  events:
+    publisher: ${EVENTS_PUBLISHER:log}
+
+management:
+  health:
+    rabbit:
+      enabled: false
+
 server:
   forward-headers-strategy: framework
 

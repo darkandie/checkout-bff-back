@@ -28,6 +28,12 @@ spring:
       password: ${REDIS_PASSWORD:}
       connect-timeout: 500ms
       timeout: 1s
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    publisher-confirm-type: simple
   cache:
     type: ${CACHE_TYPE:redis}
     cache-names: products,payment-methods
@@ -39,6 +45,13 @@ spring:
 checkout:
   cart-ttl: ${CART_TTL:30m}
   processing-timeout: ${PAYMENT_PROCESSING_TIMEOUT:2m}
+  events:
+    publisher: ${EVENTS_PUBLISHER:rabbit}
+  outbox:
+    batch-size: ${OUTBOX_BATCH_SIZE:50}
+    relay:
+      enabled: ${OUTBOX_RELAY_ENABLED:true}
+      interval-ms: ${OUTBOX_RELAY_INTERVAL_MS:2000}
 
 mocks:
   enabled: ${MOCKS_ENABLED:true}
@@ -74,6 +87,8 @@ management:
   health:
     redis:
       enabled: false
+    rabbit:
+      enabled: ${RABBIT_HEALTH_ENABLED:true}
 
 logging:
   pattern:

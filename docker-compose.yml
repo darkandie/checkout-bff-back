@@ -25,6 +25,17 @@ services:
       timeout: 3s
       retries: 10
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   app:
     build: .
     profiles: ["app"]
@@ -33,12 +44,15 @@ services:
       DATABASE_USERNAME: checkout
       DATABASE_PASSWORD: checkout
       REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
 volumes:
