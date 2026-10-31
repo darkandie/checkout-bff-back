@@ -1,11 +1,13 @@
 package com.carlosoliveira.checkout.adapter.out.paymentmethod;
 
 import com.carlosoliveira.checkout.application.port.out.PaymentMethodsPort;
+import com.carlosoliveira.checkout.config.CacheConfig;
 import com.carlosoliveira.checkout.domain.exception.ExternalServiceException;
 import com.carlosoliveira.checkout.domain.payment.PaymentMethod;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -27,6 +29,7 @@ public class PaymentMethodsHttpAdapter implements PaymentMethodsPort {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConfig.PAYMENT_METHODS_CACHE, key = "'all'", unless = "#result.isEmpty()")
     public List<PaymentMethod> findAvailable() {
         try {
             PaymentMethodResponse[] response = restClient.get()

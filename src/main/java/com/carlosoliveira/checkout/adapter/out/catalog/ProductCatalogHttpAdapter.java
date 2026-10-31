@@ -1,11 +1,13 @@
 package com.carlosoliveira.checkout.adapter.out.catalog;
 
 import com.carlosoliveira.checkout.application.port.out.ProductCatalogPort;
+import com.carlosoliveira.checkout.config.CacheConfig;
 import com.carlosoliveira.checkout.domain.catalog.Product;
 import com.carlosoliveira.checkout.domain.exception.ExternalServiceException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -26,6 +28,7 @@ public class ProductCatalogHttpAdapter implements ProductCatalogPort {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'all'", unless = "#result.isEmpty()")
     public List<Product> findAll() {
         try {
             ProductResponse[] response = restClient.get()

@@ -21,6 +21,20 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: 500ms
+      timeout: 1s
+  cache:
+    type: ${CACHE_TYPE:redis}
+    cache-names: products,payment-methods
+    redis:
+      time-to-live: ${CACHE_TTL:10m}
+      key-prefix: "checkout-bff::"
+      cache-null-values: false
 
 mocks:
   enabled: ${MOCKS_ENABLED:true}
@@ -53,3 +67,6 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    redis:
+      enabled: false
