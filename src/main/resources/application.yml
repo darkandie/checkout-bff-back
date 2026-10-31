@@ -8,6 +8,16 @@ spring:
 mocks:
   enabled: ${MOCKS_ENABLED:true}
 
+external-services:
+  product-service:
+    base-url: ${PRODUCT_SERVICE_URL:http://localhost:${server.port}/mocks/product-service}
+    connect-timeout: ${PRODUCT_SERVICE_CONNECT_TIMEOUT:2s}
+    read-timeout: ${PRODUCT_SERVICE_READ_TIMEOUT:3s}
+  payment-method-service:
+    base-url: ${PAYMENT_METHOD_SERVICE_URL:http://localhost:${server.port}/mocks/payment-method-service}
+    connect-timeout: ${PAYMENT_METHOD_SERVICE_CONNECT_TIMEOUT:2s}
+    read-timeout: ${PAYMENT_METHOD_SERVICE_READ_TIMEOUT:3s}
+
 server:
   port: ${SERVER_PORT:8080}
   shutdown: graceful
