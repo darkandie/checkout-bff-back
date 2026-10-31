@@ -1,0 +1,3 @@
+project_id        = "my-gcp-project"
+region            = "southamerica-east1"
+github_repository = "my-user/checkout-bff"

@@ -17,3 +17,10 @@ target/
 .DS_Store
 *.log
 .env
+
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
