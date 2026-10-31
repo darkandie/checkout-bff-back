@@ -18,6 +18,11 @@ external-services:
     connect-timeout: ${PAYMENT_METHOD_SERVICE_CONNECT_TIMEOUT:2s}
     read-timeout: ${PAYMENT_METHOD_SERVICE_READ_TIMEOUT:3s}
 
+payment-simulator:
+  declined-card-suffix: ${PAYMENT_DECLINED_CARD_SUFFIX:0002}
+  pix-merchant-name: ${PIX_MERCHANT_NAME:Checkout Assinaturas}
+  pix-merchant-city: ${PIX_MERCHANT_CITY:Belem}
+
 server:
   port: ${SERVER_PORT:8080}
   shutdown: graceful
