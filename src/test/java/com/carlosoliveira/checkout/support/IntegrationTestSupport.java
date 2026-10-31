@@ -11,18 +11,27 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.RabbitMQContainer;
 
 import static org.mockito.Mockito.when;
 
-@SpringBootTest(properties = "spring.cache.type=none")
+@SpringBootTest(properties = {
+        "spring.cache.type=none",
+        "checkout.events.publisher=rabbit",
+        "checkout.outbox.relay.enabled=false"
+})
 @AutoConfigureMockMvc
 public abstract class IntegrationTestSupport {
 
     @ServiceConnection
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
+    @ServiceConnection
+    static final RabbitMQContainer RABBITMQ = new RabbitMQContainer("rabbitmq:3.13-management-alpine");
+
     static {
         POSTGRES.start();
+        RABBITMQ.start();
     }
 
     @Autowired

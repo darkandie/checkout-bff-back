@@ -223,6 +223,10 @@ class CheckoutFlowIT extends IntegrationTestSupport {
         assertThat(statuses.stream().filter(status -> status == 409).count()).isEqualTo((long) attempts - 1);
         String status = jdbcTemplate.queryForObject("select status from carts where id = ?", String.class, cartId);
         assertThat(status).isEqualTo("APPROVED");
+        Integer approvedEvents = jdbcTemplate.queryForObject(
+                "select count(*) from outbox_events where aggregate_id = ? and event_type = 'payment.approved'",
+                Integer.class, cartId);
+        assertThat(approvedEvents).isEqualTo(1);
     }
 
     private UUID preCheckout(String... slugs) throws Exception {
